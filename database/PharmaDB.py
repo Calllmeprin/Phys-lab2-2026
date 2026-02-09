@@ -83,7 +83,7 @@ def create_demo_database() -> PharmacyDatabase:
             dosage=250,
             expiration_date=date(2026, 11, 15),
             tablets_per_packets=10,
-            quantity=10,
+            quantity=6,
             location=ShelfLocation("B2", x=2.2, y=1.3)
         )
     )
@@ -114,7 +114,7 @@ if __name__ == "__main__":
 
             # Low stock warning
             if remaining == 5:
-                print("⚠️ WARNING: Stock has reached LOW LEVEL (5 packets remaining)")
+                print("⚠️  WARNING: Stock has reached LOW LEVEL (5 packets remaining)")
 
             # Out-of-stock alert (sends pop-up alert)
             if remaining == 0:
@@ -124,11 +124,12 @@ if __name__ == "__main__":
         db.dispense(med_name, available)
 
         if available < requested_packets:
-            print("⚠️ Alert pharmacist: insufficient stock")
+            print("⚠️  Alert: insufficient stock")
 
-        if db.is_low_stock(med_name):
-            remaining = db.inventory[med_name].quantity
-            print(f"⚠️ Alert pharmacist: LOW STOCK ({remaining} packets remaining)")
+        remaining = db.get_remaining_packets(med_name)
+
+        if remaining > 0 and remaining <= 5:
+             print(f"⚠️  Alert: Low stock ({remaining} packets remaining)")
 
     else:
-        print("❌ Alert pharmacist: medication not in stock")
+        print("Alert: medication not in stock")
