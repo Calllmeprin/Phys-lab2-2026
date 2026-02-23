@@ -1,0 +1,6 @@
+{
+  "low_stock_threshold": 5,
+  "high_dosage_threshold": 1000,
+  "expiry_warning_days": 30,
+  "dry_run_mode": false
+} 
