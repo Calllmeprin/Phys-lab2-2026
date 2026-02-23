@@ -26,8 +26,8 @@ def validate_prescriptions(prescription_list):      # Function to detect for dup
     for med_name, qty in prescription_list:
         if med_name in merged:
             merged[med_name] += qty
-            print(f"⚠️ Duplicate medication detected: {med_name}. Quantities merged.")
-            log_event("DUPLICATE_MEDICATION", med_name, f"Merged quantity: {merged[med_name]}")
+            print(f"⚠️  Duplicate medication detected: {med_name}. Quantities merged.")
+            log_event("DUPLICATE MEDICATION", med_name, f"Merged quantity: {merged[med_name]}")
         else:
             merged[med_name] = qty
 
@@ -124,7 +124,7 @@ if __name__ == "__main__":
             if med.expiration_date < today:
                 print(f"🚫 Medication expired: {med_name} (Expired on {med.expiration_date})")
                 log_event(
-                    "EXPIRED_MEDICATION",
+                    "EXPIRED MEDICATION",
                     med_name,
                     f"Expired on: {med.expiration_date}"
                 )
@@ -140,14 +140,14 @@ if __name__ == "__main__":
                     f"(in {days_until_expiry} days)"
                 )
                 log_event(
-                    "EXPIRY_WARNING",
+                    "EXPIRY WARNING",
                     med_name,
                     f"Days until expiry: {days_until_expiry}"
                 )
 
         if med and med.dosage > HIGH_DOSAGE_THRESHOLD:
             print(f"⚠️ High dosage warning for {med_name}: {med.dosage} mg")
-            log_event("HIGH_DOSAGE_WARNING", med_name, f"Dosage: {med.dosage} mg")
+            log_event("HIGH DOSAGE WARNING", med_name, f"Dosage: {med.dosage} mg")
             total_warnings += 1
 
         available = db.check_availability(med_name, requested)
@@ -155,7 +155,7 @@ if __name__ == "__main__":
 
         if requested <= 0:
             print("ℹ️ No prescriptions to dispense. Ending operation.")
-            log_event("NO_OPERATION", med_name, 0)
+            log_event("NO OPERATION", med_name, 0)
             continue
 
         current_remaining = db.get_remaining(med_name)
@@ -167,7 +167,7 @@ if __name__ == "__main__":
 
                 print(f"[DRY RUN] Simulated dispense. Remaining would be: {simulated_remaining}")
                 log_event(
-                    "DRY_RUN_DISPENSE",
+                    "DRY RUN DISPENSE",
                     med_name,
                     f"Simulated remaining: {simulated_remaining}"
                 )
@@ -197,11 +197,19 @@ if __name__ == "__main__":
                 "Continuing to next prescribed medication."
             )
             # Line 1 — remaining stock
-            log_event(
-                "INSUFFICIENT STOCK",
-                med_name,
-                f"Remaining: {db.get_remaining(med_name)}"
-            )
+            if DRY_RUN_MODE:
+                simulated_remaining = db.get_remaining(med_name) - available
+                log_event(
+                    "INSUFFICIENT STOCK",
+                    med_name,
+                    f"Simulated remaining: {simulated_remaining}"
+                )
+            else:
+                log_event(
+                    "INSUFFICIENT STOCK",
+                    med_name,
+                    f"Remaining: {db.get_remaining(med_name)}"
+                )
             total_shortages += shortage
 
             # Line 2 — detailed shortage info
