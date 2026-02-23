@@ -27,7 +27,7 @@ def log_sess_separator():
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     separator_line = (
-        f"========================== SESSION ENDED {timestamp} =========================="
+        f"========================== SESSION ENDED {timestamp} ==========================\n"
     )
 
     with open(LOG_FILE, "a") as f:
