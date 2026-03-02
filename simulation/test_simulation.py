@@ -5,8 +5,10 @@ from database.models import ShelfLocation, Prescriptions
 from database.pharmacy_db import PharmacyDatabase
 from database.storage import save_inventory, load_inventory
 from database.logger import log_event, log_sess_separator
+from database.dispense_controller import DispenseController, DispenseState
 from datetime import date, timedelta
-
+from enum import Enum
+import time
 
 def setup_demo(db):
     db.add_prescription(
@@ -83,173 +85,157 @@ def inventory_dashboard(db, config):
     print(f"Expiring soon items: {expiring_soon_count}")
     print("==========================================\n")
 
-if __name__ == "__main__":
-    import time
+if __name__ == "__main__":              # Recently underwent huge revamp for command-based system like Aj. Poom's ATM code assignment
 
     db = PharmacyDatabase()
     load_inventory(db)
 
     config = load_config()
 
-    LOW_STOCK_THRESHOLD =  config["low_stock_threshold"]
-    HIGH_DOSAGE_THRESHOLD = config["high_dosage_threshold"]
-    EXPIRY_WARNING_DAYS = config["expiry_warning_days"]
-    DRY_RUN_MODE = config["dry_run_mode"]
-
-    #small block for session report
-    session_start_time = time.time()
-    total_medications_processed = 0
-    total_packets_dispensed = 0
-    total_shortages = 0
-    total_warnings = 0
-
     if not db.inventory:
         setup_demo(db)
 
-    prescription_list = [
-        ("Amoxicillin", 5),
-        ("Amoxicillin", 3)                              # This is to test the merge function
-    ]
+    controller = DispenseController(db, config)
 
-    prescription_list = validate_prescriptions(prescription_list)
+    while True:
 
-    for index, (med_name, requested) in enumerate(prescription_list):
-        total_medications_processed += 1
-        med = db.inventory.get(med_name)
+        print("\n===== PHARMACY SYSTEM MENU =====")
+        print("1. Run prescription")
+        print("2. Show inventory dashboard")
+        print("3. Restock medication")
+        print("4. Remove stock")
+        print("5. Exit")
 
-        if med:
-            today = date.today()
+        choice = input("Select option: ")
 
-            # 🚨 Block expired medication
-            if med.expiration_date < today:
-                print(f"🚫 Medication expired: {med_name} (Expired on {med.expiration_date})")
-                log_event(
-                    "EXPIRED MEDICATION",
-                    med_name,
-                    f"Expired on: {med.expiration_date}"
-                )
-                total_warnings += 1
-                continue  # Skip dispensing this medication
+        # -------------------------------------------------
+        # OPTION 1: Run Prescription
+        # -------------------------------------------------
+        if choice == "1":
 
-            # ⚠️ Expiry warning window
-            days_until_expiry = (med.expiration_date - today).days
+            session_start_time = time.time()
 
-            if days_until_expiry <= EXPIRY_WARNING_DAYS:
-                print(
-                    f"⚠️ {med_name} expiring soon "
-                    f"(in {days_until_expiry} days)"
-                )
-                log_event(
-                    "EXPIRY WARNING",
-                    med_name,
-                    f"Days until expiry: {days_until_expiry}"
-                )
+            prescription_list = [
+                ("Amoxicillin", 5),
+                ("Amoxicillin", 3)
+            ]
 
-        if med and med.dosage > HIGH_DOSAGE_THRESHOLD:
-            print(f"⚠️ High dosage warning for {med_name}: {med.dosage} mg")
-            log_event("HIGH DOSAGE WARNING", med_name, f"Dosage: {med.dosage} mg")
-            total_warnings += 1
+            prescription_list = validate_prescriptions(prescription_list)
 
-        available = db.check_availability(med_name, requested)
-        shortage = requested - available
+            # Reset controller counters for fresh session
+            controller.total_medications_processed = 0
+            controller.total_dispensed = 0
+            controller.total_shortage = 0
+            controller.total_warnings = 0
+            controller.rejections = []
 
-        if requested <= 0:
-            print("ℹ️ No prescriptions to dispense. Ending operation.")
-            log_event("NO OPERATION", med_name, 0)
-            continue
+            for med_name, requested in prescription_list:
+                controller.process_medication(med_name, requested)
 
-        current_remaining = db.get_remaining(med_name)
+            print("\n============= SESSION REPORT =============")
+            print(f"Medications processed: {controller.total_medications_processed}")
+            print(f"Total packets dispensed: {controller.total_dispensed}")
+            print(f"Total shortage amount: {controller.total_shortage}")
+            print(f"Total warnings triggered: {controller.total_warnings}")
 
-        for i in range(available):
-
-            if DRY_RUN_MODE:
-                simulated_remaining = current_remaining - (i + 1)
-
-                print(f"[DRY RUN] Simulated dispense. Remaining would be: {simulated_remaining}")
-                log_event(
-                    "DRY RUN DISPENSE",
-                    med_name,
-                    f"Simulated remaining: {simulated_remaining}"
-                )
-
+            print("\nRejections:")
+            if controller.rejections:
+                for r in controller.rejections:
+                    print(f"- {r[0]} → {r[1]}")
             else:
-                db.dispense(med_name, 1)
-                total_packets_dispensed += 1
-                remaining = db.get_remaining(med_name)
+                print("None")
 
-                print(f"Remaining packets: {remaining}")
-                log_event("DISPENSE", med_name, f"Remaining: {remaining}")
+            print("============================================")
 
-                if remaining == 0:
-                    print("🚨 OUT OF STOCK")
-                    log_event("OUT OF STOCK", med_name, f"Remeaning: {remaining}")
+            session_end_time = time.time()
+            session_duration = round(session_end_time - session_start_time, 2)
 
-                elif remaining == LOW_STOCK_THRESHOLD:
-                    print("⚠️  LOW STOCK")
-                    log_event("LOW STOCK", med_name, f"Remaining: {remaining}")
-                    total_warnings += 1
-
-        print("============================================")
-
-        if shortage > 0:
-            print(
-                f"⚠️  Insufficient stock: {med_name} short by {shortage} packets. "
-                "Continuing to next prescribed medication."
-            )
-            # Line 1 — remaining stock
-            if DRY_RUN_MODE:
-                simulated_remaining = db.get_remaining(med_name) - available
-                log_event(
-                    "INSUFFICIENT STOCK",
-                    med_name,
-                    f"Simulated remaining: {simulated_remaining}"
-                )
-            else:
-                log_event(
-                    "INSUFFICIENT STOCK",
-                    med_name,
-                    f"Remaining: {db.get_remaining(med_name)}"
-                )
-            total_shortages += shortage
-
-            # Line 2 — detailed shortage info
             log_event(
-                "INSUFFICIENT STOCK",
-                med_name,
-                f"Short by: {shortage} | Requested: {requested} | Available: {available}"
+                "END OF SESSION",
+                "SYSTEM",
+                f"Processed: {controller.total_medications_processed} | "
+                f"Dispensed: {controller.total_dispensed} | "
+                f"Shortage: {controller.total_shortage} | "
+                f"Warnings: {controller.total_warnings} | "
+                f"Duration: {session_duration}s"
             )
 
-        print("✅ End of operation for this medication.")
-        print("============================================")
+            log_sess_separator()
 
+        # -------------------------------------------------
+        # OPTION 2: Show Dashboard
+        # -------------------------------------------------
+        elif choice == "2":
+            inventory_dashboard(db, config)
 
-    print("\n============= SESSION REPORT =============")
-    print(f"Medications processed: {total_medications_processed}")
-    print(f"Total packets dispensed: {total_packets_dispensed}")
-    print(f"Total shortage amount: {total_shortages}")
-    print(f"Total warnings triggered: {total_warnings}")
-    print("============================================")
-    print("All prescriptions processed. End operation.")
-    print("============================================")
+        # -------------------------------------------------
+        # OPTION 3: Restock Medication
+        # -------------------------------------------------
+        elif choice == "3":
 
-    session_end_time= time.time()
-    session_duration = round(session_end_time - session_start_time, 2)
+            med_name = input("Medication name: ")
+            try:
+                amount = int(input("Amount to add: "))
+            except ValueError:
+                print("Invalid number.")
+                continue
 
-    log_event(
-        "END OF SESSION",
-        "SYSTEM",
-        "Dispensing process completed\n"
-        f"Processed: {total_medications_processed} | "
-        f"Dispensed: {total_packets_dispensed} | "
-        f"Shortage: {total_shortages} | "
-        f"Warnings: {total_warnings} | "
-        f"Duration: {session_duration}s"
-    )
+            if med_name in db.inventory:
+                db.inventory[med_name].quantity += amount
+                new_total = db.inventory[med_name].quantity
 
-    log_sess_separator()
-    inventory_dashboard(db, config)
+                print(f"Added {amount} packets to {med_name}.")
+                
+                log_event(
+                    "RESTOCK",
+                    med_name,
+                    f"Added: {amount} | New total: {new_total}"
+                )
 
-    if not DRY_RUN_MODE:
-        save_inventory(db)
-    else:
-        print("DRY RUN: Inventory not saved.")
+            else:
+                print("Medication not found.")
+
+        # -------------------------------------------------
+        # OPTION 4: Remove Stock
+        # -------------------------------------------------
+        elif choice == "4":
+
+            med_name = input("Medication name: ")
+            try:
+                amount = int(input("Amount to remove: "))
+            except ValueError:
+                print("Invalid number.")
+                continue
+
+            if med_name in db.inventory:
+                if db.inventory[med_name].quantity >= amount:
+                    db.inventory[med_name].quantity -= amount
+                    new_total = db.inventory[med_name].quantity
+                
+                    print(f"Removed {amount} packets from {med_name}.")
+
+                    log_event(
+                        "MANUAL REMOVE",
+                        med_name,
+                        f"Removed: {amount} | New total: {new_total}"
+                    )
+                else:
+                    print("Not enough stock to remove that amount.")
+            else:
+                print("Medication not found.")
+
+        # -------------------------------------------------
+        # OPTION 5: Exit
+        # -------------------------------------------------
+        elif choice == "5":
+
+            if not config["dry_run_mode"]:
+                save_inventory(db)
+            else:
+                print("DRY RUN: Inventory not saved.")
+
+            print("Exiting system.")
+            break
+
+        else:
+            print("Invalid option. Please select 1–5.")
