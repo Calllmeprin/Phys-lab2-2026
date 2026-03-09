@@ -104,7 +104,8 @@ if __name__ == "__main__":              # Recently underwent huge revamp for com
         print("2. Show inventory dashboard")
         print("3. Restock medication")
         print("4. Remove stock")
-        print("5. Exit")
+        print("5. Add new medication")
+        print("6. Exit")
 
         choice = input("Select option: ")
 
@@ -115,10 +116,22 @@ if __name__ == "__main__":              # Recently underwent huge revamp for com
 
             session_start_time = time.time()
 
-            prescription_list = [
-                ("Amoxicillin", 5),
-                ("Amoxicillin", 3)
-            ]
+            prescription_list = []
+            
+            while True:
+                med_name = input("Medication name: ")
+
+                try:
+                    qty = int(input("Number of packets: "))
+                except ValueError:
+                    print("Invalid number.")
+                    continue
+
+                prescription_list.append((med_name, qty))
+
+                more = input("Add another medication? (y/n): ").lower()
+                if more != "y":
+                    break
 
             prescription_list = validate_prescriptions(prescription_list)
 
@@ -225,9 +238,55 @@ if __name__ == "__main__":              # Recently underwent huge revamp for com
                 print("Medication not found.")
 
         # -------------------------------------------------
-        # OPTION 5: Exit
+        # OPTION 5: Add new medication
         # -------------------------------------------------
         elif choice == "5":
+            name = input("Medication name: ")
+
+            try:
+                dosage = float(input("Dosage (mg): "))
+                packets = int(input("Number of packets: "))
+                tablets_per_packet = int(input("Tablets per packet: "))
+            except ValueError:
+                print("Invalid input.")
+                continue
+
+            expiry_input = input("Expiration date (YYYY-MM-DD): ")
+
+            try:
+                expiration = date.fromisoformat(expiry_input)
+            except ValueError:
+                print("Invalid date format.")
+                continue
+
+            shelf_id = input("Shelf ID (e.g. A1): ")
+
+            try:
+                x = float(input("Shelf X coordinate: "))
+                y = float(input("Shelf Y coordinate: "))
+            except ValueError:
+                print("Invalid coordinates.")
+                continue
+
+            location = ShelfLocation(shelf_id, x, y)
+
+            new_med = Prescriptions(
+                name=name,
+                dosage=dosage,
+                expiration_date=expiration,
+                tablets_per_packets=tablets_per_packet,
+                quantity=packets,
+                location=location
+            )
+
+            db.add_prescription(new_med)
+
+            print(f"{name} successfully added to inventory.")
+
+        # -------------------------------------------------
+        # OPTION 6: Exit
+        # -------------------------------------------------
+        elif choice == "6":
 
             if not config["dry_run_mode"]:
                 save_inventory(db)
@@ -238,4 +297,4 @@ if __name__ == "__main__":              # Recently underwent huge revamp for com
             break
 
         else:
-            print("Invalid option. Please select 1–5.")
+            print("Invalid option. Please select 1-6.")
