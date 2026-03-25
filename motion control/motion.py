@@ -1,152 +1,154 @@
-import cv2
-import os
-import pytesseract
-import RPi.GPIO
+import RPi.GPIO as GPIO
 import time
-GPIO = RPi.GPIO
+import sys
+import os
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from database.models import ShelfLocation
+from database.pharmacy_db import PharmacyDatabase
+
+# ── Pin Definitions ──────────────────────────────
+X_STEP, X_DIR = 17, 27
+Y_STEP, Y_DIR = 22, 23
+Z_STEP, Z_DIR = 24, 25
+SUCTION_PIN   = 16  # ← change this to your actual relay pin later
+
+# ── Settings ─────────────────────────────────────
+STEP_DELAY    = 0.001
+SUCTION_TIME  = 3    # ← seconds to hold suction (adjust as needed)
+
+# Drop-off point (change when you decide the fixed point)
+DROP_OFF = ShelfLocation(shelf_id="DROP", x=0, y=0, z=0)
+
+# ── Current Position Tracker ─────────────────────
+current_pos = {"x": 0, "y": 0, "z": 0}
+
+# ── Setup ─────────────────────────────────────────
 GPIO.setmode(GPIO.BCM)
 GPIO.setwarnings(False)
 
-# motion controls value, currently all are placeholder values and are subject to change
-x_step = 67 
-x_dir = 67
-x_enable = 67
-X_limit = 67
+for pin in [X_STEP, X_DIR, Y_STEP, Y_DIR, Z_STEP, Z_DIR, SUCTION_PIN]:
+    GPIO.setup(pin, GPIO.OUT)
 
-y_step = 16
-y_dir = 24
-y_enable = 11
-y_limit = 17
+GPIO.output(SUCTION_PIN, GPIO.LOW)  # suction OFF at start
 
-z_step = 21
-z_dir = 20
-z_enable = 16
-z_dir = 20
-z_enable = 16
-z_dir_limit = 25
+# ── Motor Functions ───────────────────────────────
+def move_axis(step_pin, dir_pin, steps):
+    if steps == 0:
+        return
+    direction = GPIO.HIGH if steps > 0 else GPIO.LOW
+    GPIO.output(dir_pin, direction)
+    for _ in range(abs(steps)):
+        GPIO.output(step_pin, GPIO.HIGH)
+        time.sleep(STEP_DELAY)
+        GPIO.output(step_pin, GPIO.LOW)
+        time.sleep(STEP_DELAY)
 
-ServoPin = 12
-RelayPin = 18
+def move_to(target: ShelfLocation):
+    global current_pos
 
-GPIO.setup([x_step, x_dir, x_enable, y_step, y_dir, y_enable, z_step, z_dir, z_enable, z_dir_limit, RelayPin,ServoPin], GPIO.OUT)
-GPIO.setup([X_limit, z_dir_limit, y_limit], GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    delta_x = int(target.x - current_pos["x"])
+    delta_y = int(target.y - current_pos["y"])
+    delta_z = int(target.z - current_pos["z"])
 
-GPIO.output(x_enable, GPIO.LOW)
-GPIO.output(y_enable, GPIO.LOW)
-GPIO.output(z_enable, GPIO.LOW)
+    print(f"  Moving to {target.shelf_id} → ΔX:{delta_x} ΔY:{delta_y} ΔZ:{delta_z}")
 
-class Axis:
-    def __init__(self, step_pin, dir_pin, enable_pin, X_limit, step_per_unit):
-        self.step_pin = step_pin
-        self.dir_pin = dir_pin
-        self.enable_pin = enable_pin
-        self.X_limit = X_limit
-        self.current_position = 0
-        self.step_per_unit = step_per_unit 
-        
-        GPIO.setup(self.step_pin, GPIO.OUT)
-        GPIO.setup(self.dir_pin, GPIO.OUT)
-        GPIO.setup(self.enable_pin, GPIO.OUT)
-        GPIO.output(self.enable_pin, GPIO.LOW)
-        GPIO.setup(self.X_limit, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    move_axis(X_STEP, X_DIR, delta_x)
+    move_axis(Y_STEP, Y_DIR, delta_y)
+    move_axis(Z_STEP, Z_DIR, delta_z)
 
-    def dir(self, direction):
-        GPIO.output(self.dir_pin, direction)
+    # Update current position
+    current_pos["x"] = target.x
+    current_pos["y"] = target.y
+    current_pos["z"] = target.z
 
-    def home(self, direction, delay=0.002): 
-        GPIO.pulse(self.dir_pin, direction) 
-            
-    def pulse(self, direction,delay=0.002): #send a simgle pulse to the stepper motor
-        GPIO.output(self.step_pin, GPIO.HIGH)
-        time.sleep(delay)
-        GPIO.output(self.step_pin, GPIO.LOW)
-        time.sleep(delay)
+    print(f"  Arrived at {target.shelf_id} ✅")
 
-        GPIO.output(self.dir_pin, direction)
+# ── Suction Functions ─────────────────────────────
+def suction_on():
+    GPIO.output(SUCTION_PIN, GPIO.HIGH)
+    print("  Suction ON 🟢")
 
-    def hit_limit(self):
-        return GPIO.input(self.X_limit) == GPIO.LOW
+def suction_off():
+    GPIO.output(SUCTION_PIN, GPIO.LOW)
+    print("  Suction OFF 🔴")
 
-def move_xyz_absolute(self, x_target, y_target, z_target, delay=0.002): 
-         
-    x_steps = int(abs(x_target - x.current_position) * x.step_per_unit)
-    y_steps = int(abs(y_target - y.current_position) * y.step_per_unit)
-    z_steps = int(abs(z_target - z.current_position) * z.step_per_unit)
+# ── Dispense Function ─────────────────────────────
+def dispense_medicine(medicine_name: str, db: PharmacyDatabase):
+    print(f"\n=== Dispensing: {medicine_name} ===")
 
-    x_dir = GPIO.HIGH if x_target > x.current_position else GPIO.LOW
-    y_dir = GPIO.HIGH if y_target > y.current_position else GPIO.LOW  
-    z_dir = GPIO.HIGH if z_target > z.current_position else GPIO.LOW
+    # Look up medicine in database
+    if medicine_name not in db.inventory:
+        print(f"  ERROR: {medicine_name} not found in database!")
+        return False
 
-    while x_steps > 0 or y_steps > 0 or z_steps > 0:
-        if x_steps > 0:
-            x_pulse(x_dir, delay)
-            x_steps -=1
+    prescription = db.inventory[medicine_name]
+    target_shelf  = prescription.location
 
-        if y_steps > 0:
-            y_pulse(y_dir, delay)
-            y_steps -=1
+    # Check availability
+    if prescription.quantity <= 0:
+        print(f"  ERROR: {medicine_name} is out of stock!")
+        return False
 
-        if z_steps > 0:
-            z_pulse(z_dir, delay)
-            z_steps -=1
+    # Move to shelf
+    print(f"  Going to shelf {target_shelf.shelf_id}...")
+    move_to(target_shelf)
 
-        x.current_position = x_target
-        y.current_position = y_target
-        z.current_position = z_target
+    # Pick medicine with suction
+    print("  Picking medicine...")
+    suction_on()
+    time.sleep(SUCTION_TIME)
 
-        for _ in range(int(x_steps)):
-            GPIO.output(x.step_pin, GPIO.HIGH)
-            time.sleep(delay)
-            GPIO.output(x.step_pin, GPIO.LOW)
-            time.sleep(delay)
+    # Move to drop-off
+    print("  Going to drop-off point...")
+    move_to(DROP_OFF)
 
-        for _ in range(int(y_steps)):
-            GPIO.output(y.step_pin, GPIO.HIGH)
-            time.sleep(delay)
-            GPIO.output(y.step_pin, GPIO.LOW)
-            time.sleep(delay)
+    # Release medicine
+    suction_off()
+    print("  Medicine dropped off ✅")
 
-        for _ in range(int(z_steps)):
-            GPIO.output(z.step_pin, GPIO.HIGH)
-            time.sleep(delay)
-            GPIO.output(z.step_pin, GPIO.LOW)
-            time.sleep(delay)
+    # Update stock
+    db.dispense(medicine_name, 1)
+    print(f"  Stock updated. Remaining: {db.get_remaining(medicine_name)} packets")
 
-def home_axis(axis, direction, delay=0.002):
-    axis.dir(direction)
-    while not axis.hit_limit():
-        axis.pulse(axis, direction, delay)
-    axis.current_position = 0
+    return True
 
-def home_all_axes():
-    z_dir = GPIO.HIGH
-    x_dir = GPIO.LOW
+# ── Main ──────────────────────────────────────────
+if __name__ == "__main__":
+    # Setup database with sample medicines
+    db = PharmacyDatabase()
+    db.add_prescription(__import__('database.models', fromlist=['Prescriptions']).Prescriptions(
+        name="Paracetamol",
+        dosage=500,
+        expiration_date=__import__('datetime').date(2026, 12, 31),
+        tablets_per_packets=10,
+        quantity=5,
+        location=ShelfLocation(shelf_id="A1", x=400, y=800, z=200)
+    ))
+    db.add_prescription(__import__('database.models', fromlist=['Prescriptions']).Prescriptions(
+        name="Ibuprofen",
+        dosage=400,
+        expiration_date=__import__('datetime').date(2026, 12, 31),
+        tablets_per_packets=10,
+        quantity=3,
+        location=ShelfLocation(shelf_id="B2", x=800, y=400, z=300)
+    ))
 
-    z.home(z, GPIO.HIGH)
-    x.home(x, GPIO.LOW)
+    try:
+        # Example: Jennifer's order
+        order = ["Paracetamol", "Ibuprofen"]
+        print("=== Starting Dispensing System ===")
+        print(f"Order: {order}")
 
-servo = GPIO.PWM(ServoPin, 50)
-servo.start(0)
-servo.ChangeDutyCycle(7.5)  # 90 degrees
-servo.ChangeDutyCycle(0)    # Stop sending signal to servo
+        for medicine in order:
+            dispense_medicine(medicine, db)
 
-RelayPin = 18 
-GPIO.setup(RelayPin, GPIO.OUT)
-GPIO.output(RelayPin, GPIO.HIGH)  # Turn relay ON
+        print("\n=== All medicines dispensed! ===")
 
-pytesseract.pytesseract.tesseract_cmd='/usr/bin/tesseract'  
+    except KeyboardInterrupt:
+        print("\nStopped by user")
 
-pill_labels = "labels"
-output = "ocrfinished"
-
-for i in range (1,101):
-    filename= f"label{i:02d}.jpg"
-    img_path= os.path.join(pill_labels, filename)
-
-    img= cv2.imread(img_path)
-    if img is None:
-            print(f"File{filename}notfound")
-
-    gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-    text = pytesseract.image_to_string(gray,lang= 'eng',config='--psm 6')
-    print(f"Extracted text from file {i}: {text}")
+    finally:
+        suction_off()
+        GPIO.cleanup()
+        print("GPIO cleaned up ✅")
