@@ -10,6 +10,7 @@ class ShelfLocation:
     shelf_id: str               # e.g. "A1", alphabet for row and num for column
     x: float
     y: float
+    z: float                    # added Z axis
 
 ## ======================== for prescriptions ======================== ##
 
