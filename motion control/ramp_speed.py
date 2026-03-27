@@ -10,11 +10,11 @@ BACKWARD = GPIO.LOW
 TEST_STEPS = 2000
 
 Y_START_DELAY = 0.0015 # smooth start
-Y_MIN_DELAY   = 0.0009 #slow but smooth
+Y_MIN_DELAY   = 0.0002 # +slow but smooth / - fast but loud
 Y_RAMP_STEPS  = 380
 
 Z_START_DELAY = 0.0015 # smooth start
-Z_MIN_DELAY   = 0.0010 #slow but smooth
+Z_MIN_DELAY   = 0.0000 # +slow but smooth / - fast but loud
 Z_RAMP_STEPS  = 380
 
 GPIO.setmode(GPIO.BCM)
