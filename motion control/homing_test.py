@@ -9,8 +9,8 @@ Z_STEP, Z_DIR, Z_LIMIT = 24, 25, 13
 Y_POSITIVE = GPIO.HIGH   # right
 Y_NEGATIVE = GPIO.LOW    # left
 
-Z_POSITIVE = GPIO.HIGH  # up   
-Z_NEGATIVE = GPIO.LOW # down 
+Z_POSITIVE = GPIO.LOW  # up   
+Z_NEGATIVE = GPIO.HIGH # down 
 
 # ── Motion Settings ─────────────────────────────
 START_DELAY = 0.0015
