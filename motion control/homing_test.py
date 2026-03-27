@@ -13,8 +13,8 @@ Z_POSITIVE = GPIO.LOW  # up
 Z_NEGATIVE = GPIO.HIGH # down 
 
 # ── Motion Settings ─────────────────────────────
-START_DELAY = 0.0015
-MIN_DELAY   = 0.002
+START_DELAY = 0.0020
+MIN_DELAY   = 0.0010
 RAMP_STEPS  = 300
 
 # ── Position Tracking ───────────────────────────
