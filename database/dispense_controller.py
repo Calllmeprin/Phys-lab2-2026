@@ -25,6 +25,16 @@ class DispenseController:
 
         return True
 
+    def reject(self, med_name, reason):
+            self.log_state_change(DispenseState.REJECTED)
+
+            log_event("REJECTION", med_name, reason)
+
+            self.rejections.append({
+                "medication": med_name,
+                "reason": reason
+            })
+    
     def __init__(self, db, config):
         self.db = db
         self.config = config
@@ -35,16 +45,6 @@ class DispenseController:
         self.total_shortage = 0
         self.total_warnings = 0
         self.rejections = []
-
-        def reject(self, med_name, reason):
-            self.log_state_change(DispenseState.REJECTED)
-
-            log_event("REJECTION", med_name, reason)
-
-            self.rejections.append({
-                "medication": med_name,
-                "reason": reason
-            })
 
     def log_state_change(self, state):          # Updates current state
         self.state = state
