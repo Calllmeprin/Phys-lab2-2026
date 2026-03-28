@@ -1,4 +1,4 @@
-## This module is to purely test how the software handles and logs the process ##
+## This module is to purely test how the software handles and logs the operations ##
 
 from database.config_loader import load_config
 from database.models import ShelfLocation, Prescriptions
@@ -22,7 +22,7 @@ def setup_demo(db):
         )
     )
 
-def validate_prescriptions(prescription_list):      # Function to detect for duplicates in prescription and combine the amount.
+def validate_prescriptions(prescription_list):      # Function to look for duplicates in the prescription order and combine the amount.
     merged = {}
 
     for med_name, qty in prescription_list:
@@ -34,6 +34,15 @@ def validate_prescriptions(prescription_list):      # Function to detect for dup
             merged[med_name] = qty
 
     return list(merged.items())
+
+def safe_input(prompt):
+    user_input = input(prompt).strip()
+
+    if user_input.lower() == "cancel":
+        print("\nReturning to main menu...\n")
+        return None
+
+    return user_input
 
 def inventory_dashboard(db, config):
 
@@ -107,7 +116,7 @@ if __name__ == "__main__":              # Recently underwent huge revamp for com
         print("5. Add new medication")
         print("6. Exit")
 
-        choice = input("Select option: ")
+        choice = input("\nSelect option: ")
 
         # -------------------------------------------------
         # OPTION 1: Run Prescription
@@ -119,61 +128,84 @@ if __name__ == "__main__":              # Recently underwent huge revamp for com
             prescription_list = []
             
             while True:
-                med_name = input("Medication name: ")
+                print("\n========== PRESCRIPTION INTERFACE ==========")
+                print("Enter prescription details below:\n")
 
-                try:
-                    qty = int(input("Number of packets: "))
-                except ValueError:
-                    print("Invalid number.")
-                    continue
+                print("========== ADD MEDICATION ==========")
 
-                prescription_list.append((med_name, qty))
+                while True:
+                    med_name = safe_input("Medication name: ")
+                    if med_name is None:
+                        break
 
-                more = input("Add another medication? (y/n): ").lower()
-                if more != "y":
-                    break
+                    qty_input = safe_input("Number of packets: ")
+                    if qty_input is None:
+                        break
+                    
+                    try:
+                        qty = int(qty_input)
+                    except ValueError:
+                        print("Invalid number.")
+                        continue
 
-            prescription_list = validate_prescriptions(prescription_list)
+                    prescription_list.append((med_name, qty))
 
-            # Reset controller counters for fresh session
-            controller.total_medications_processed = 0
-            controller.total_dispensed = 0
-            controller.total_shortage = 0
-            controller.total_warnings = 0
-            controller.rejections = []
+                    more = safe_input("Add another medication? (y/n): ")
+                    if more is None:
+                        break
 
-            for med_name, requested in prescription_list:
-                controller.process_medication(med_name, requested)
+                    if more == "y":
+                        print("\n========== ADD MEDICATION ==========")
+                        continue
 
-            print("\n============= SESSION REPORT =============")
-            print(f"Medications processed: {controller.total_medications_processed}")
-            print(f"Total packets dispensed: {controller.total_dispensed}")
-            print(f"Total shortage amount: {controller.total_shortage}")
-            print(f"Total warnings triggered: {controller.total_warnings}")
+                    elif more == "n":
+                        print("\n========== STARTING DISPENSING PROCESS ==========")
+                        break
 
-            print("\nRejections:")
-            if controller.rejections:
-                for r in controller.rejections:
-                    print(f"- {r[0]} → {r[1]}")
-            else:
-                print("None")
+                    else:
+                        print("Invalid input. Please enter 'y' or 'n'.")
 
-            print("============================================")
+                prescription_list = validate_prescriptions(prescription_list)
 
-            session_end_time = time.time()
-            session_duration = round(session_end_time - session_start_time, 2)
+                # Reset controller counters for fresh session
+                controller.total_medications_processed = 0
+                controller.total_dispensed = 0
+                controller.total_shortage = 0
+                controller.total_warnings = 0
+                controller.rejections = []
 
-            log_event(
-                "END OF SESSION",
-                "SYSTEM",
-                f"Processed: {controller.total_medications_processed} | "
-                f"Dispensed: {controller.total_dispensed} | "
-                f"Shortage: {controller.total_shortage} | "
-                f"Warnings: {controller.total_warnings} | "
-                f"Duration: {session_duration}s"
-            )
+                for med_name, requested in prescription_list:
+                    controller.process_medication(med_name, requested)
 
-            log_sess_separator()
+                print("\n============= SESSION REPORT =============")
+                print(f"Medications processed: {controller.total_medications_processed}")
+                print(f"Total packets dispensed: {controller.total_dispensed}")
+                print(f"Total shortage amount: {controller.total_shortage}")
+                print(f"Total warnings triggered: {controller.total_warnings}")
+
+                print("\nRejections:")
+                if controller.rejections:
+                    for r in controller.rejections:
+                        print(f"- {r[0]} → {r[1]}")
+                else:
+                    print("None")
+
+                print("============================================")
+
+                session_end_time = time.time()
+                session_duration = round(session_end_time - session_start_time, 2)
+
+                log_event(
+                    "END OF SESSION",
+                    "SYSTEM",
+                    f"Processed: {controller.total_medications_processed} | "
+                    f"Dispensed: {controller.total_dispensed} | "
+                    f"Shortage: {controller.total_shortage} | "
+                    f"Warnings: {controller.total_warnings} | "
+                    f"Duration: {session_duration}s"
+                )
+
+                log_sess_separator()
 
         # -------------------------------------------------
         # OPTION 2: Show Dashboard
@@ -186,9 +218,13 @@ if __name__ == "__main__":              # Recently underwent huge revamp for com
         # -------------------------------------------------
         elif choice == "3":
 
-            med_name = input("Medication name: ")
+            med_name = safe_input("Medication name: ")
+            if med_name is None:
+                continue
             try:
-                amount = int(input("Amount to add: "))
+                amount_input = safe_input("Amount to add: ")
+                if amount_input is None:
+                    continue
             except ValueError:
                 print("Invalid number.")
                 continue
@@ -212,8 +248,10 @@ if __name__ == "__main__":              # Recently underwent huge revamp for com
         # OPTION 4: Remove Stock
         # -------------------------------------------------
         elif choice == "4":
-
-            med_name = input("Medication name: ")
+            print("\n========== REMOVE FROM STOCK ==========")
+            med_name = safe_input("Medication name: ")
+            if med_name is None:
+                continue
             try:
                 amount = int(input("Amount to remove: "))
             except ValueError:
@@ -241,7 +279,10 @@ if __name__ == "__main__":              # Recently underwent huge revamp for com
         # OPTION 5: Add new medication
         # -------------------------------------------------
         elif choice == "5":
-            name = input("Medication name: ")
+            print("\n========== ADD NEW MEDICATION ==========")
+            name = safe_input("Medication name: ")
+            if name is None:
+                continue
 
             try:
                 dosage = float(input("Dosage (mg): "))
@@ -264,6 +305,7 @@ if __name__ == "__main__":              # Recently underwent huge revamp for com
             try:
                 x = float(input("Shelf X coordinate: "))
                 y = float(input("Shelf Y coordinate: "))
+                z = float(input("Shelf Z coordinate: "))
             except ValueError:
                 print("Invalid coordinates.")
                 continue
